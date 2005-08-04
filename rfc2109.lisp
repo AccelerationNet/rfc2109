@@ -2,7 +2,8 @@
 ; by the Oklahoma Medical Research Foundation - Centola Lab
 ;
 
-; Includes in whole RFC2109, and in part RFC2608 - not written by me.
+; Includes in whole RFC2109, and in part RFC2608 and the Netscape
+; cookie spec - not written by me.
 ;
 ; Patches and commentary are appreciated.
 ;
@@ -759,9 +760,6 @@ Cookie text:
 		     (unparseable-cookie-cookie-string condition))))
   (:documentation "Condition returned when all parsing attempts have failed."))
 
-(defun parse-cookies-vnetscape (cookie-string)
-  "Parses old netscape cookies" ; FIXME implement
-  (error 'unparseable-cookie :version "Netscape" :cookie-string cookie-string :message "Unimplemented!"))
 
 (eval-when (:compile-toplevel)
   (defun assemble-matches (cookie-string cookie key value matches)
@@ -1832,3 +1830,28 @@ RFC text below:
    (text? element)
    (not (find #\" element))))
 
+
+; From Client Side State - Netscape spec for the original cookies
+; Located at: http://wp.netscape.com/newsref/std/cookie_spec.html
+;
+;;  Syntax of the Cookie HTTP Request Header
+;;  
+;;   When requesting a URL from an HTTP server, the browser will match the
+;;  URL against all cookies and if any of them match, a line containing
+;;  the name/value pairs of all matching cookies will be included in the
+;;  HTTP request. Here is the format of that line:
+;;  
+;;  Cookie: NAME1=OPAQUE_STRING1; NAME2=OPAQUE_STRING2 ...
+;;  
+;;
+(defun trim-spaces (string)
+  (declare (type string string))
+  (string-trim (list #\Space *cr* *lf* *ht*) string))
+
+(defun parse-cookies-vnetscape (cookie-string)
+  "Parses old netscape-style cookies"
+  (let ((cookies nil))
+    (dolist (cookie (split-sequence:split-sequence #\; cookie-string :remove-empty-subseqs t))
+      (destructuring-bind (name value) (split-sequence:split-sequence #\= cookie)
+	(push (make-cookie :name (trim-spaces name) :value (trim-spaces value)) cookies)))
+    cookies))
