@@ -1566,6 +1566,7 @@ to be allowed by the specification"
 (defun token? (element)
   (declare (type string element))
   (and
+   (not (zerop (length element)))
    (token-el? (aref element 0))
    (every #'token-el? (subseq element 1))))
 
@@ -1609,9 +1610,11 @@ to be allowed by the specification"
 ;
 
 (defun quoted-string? (element)
-  (and (eql (aref element 0) #\")
-       (eql (aref element (1- (length element))) #\")
-       (qdtext? (subseq element 1 (1- (length element))))))
+  (and (>= (length element) 2)
+       (or (equal element "\"\"")
+	   (and (eql (aref element 0) #\")
+		(eql (aref element (1- (length element))) #\")
+		(qdtext? (subseq element 1 (1- (length element))))))))
 
 (defun remove-escaped-quotes-helper (input accumulator)
   (declare (type list input)
