@@ -763,16 +763,17 @@ Cookie text:
   "Parses old netscape cookies" ; FIXME implement
   (error 'unparseable-cookie :version "Netscape" :cookie-string cookie-string :message "Unimplemented!"))
 
-(defun assemble-matches (cookie-string cookie key value matches)
-  (when (not (null matches))
-    (destructuring-bind (match-against slot) (car matches)
-      (if (eql match-against 'otherwise)
-	  slot
-	  `(if (string-equal ,key ,match-against)
-	    (if (cookie-p ,cookie)
-		(setf (,slot ,cookie) (remove-quotes-around ,value))
-		(error 'unparseable-cookie :version "RFC2109" :cookie-string ,cookie-string :message ,(format nil "~A comes before NAME=VALUE" match-against)))
-	    ,(assemble-matches cookie-string cookie key value (rest matches)))))))
+(eval-when (:compile-toplevel)
+  (defun assemble-matches (cookie-string cookie key value matches)
+    (when (not (null matches))
+      (destructuring-bind (match-against slot) (car matches)
+	(if (eql match-against 'otherwise)
+	    slot
+	    `(if (string-equal ,key ,match-against)
+	      (if (cookie-p ,cookie)
+		  (setf (,slot ,cookie) (remove-quotes-around ,value))
+		  (error 'unparseable-cookie :version "RFC2109" :cookie-string ,cookie-string :message ,(format nil "~A comes before NAME=VALUE" match-against)))
+	      ,(assemble-matches cookie-string cookie key value (rest matches))))))))
 	
 (defmacro cookie-case (cookie-string cookie key value &body matches)
   "Helper macro that essentially does a case statement for cookie slots. Used in parse-cookies-v1"
