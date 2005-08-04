@@ -481,7 +481,6 @@ The returned value is suitable for passing in (request-send-headers request :set
 ;                    |       "Path" "=" value
 ;                    |       "Secure"
 ;                    |       "Version" "=" 1*DIGIT
-; TODO: Properly-format domain.
   (and (correct name valid-name? "must be a valid name")
        (try-quotes value value? (correct value value? "must be a value"))
        (optional comment (try-quotes comment value?
