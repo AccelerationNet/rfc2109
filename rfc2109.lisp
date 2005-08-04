@@ -306,7 +306,7 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
   "Verifies that NAME is a valid name"
   (declare (type string name))
   (and (attr? name)
-       (not (eql #\$ (aref name 0)))))
+       (not (eql #\$ (elt name 0)))))
 
 ; 
 ; 
@@ -347,8 +347,8 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 (defun valid-domain? (domain)
   (declare (type string domain))
   (and (value? domain)
-       (eql #\. (aref domain
-		      (if (eql #\" (aref domain 0))
+       (eql #\. (elt domain
+		      (if (eql #\" (elt domain 0))
 			  1
 			  0)))))
  
@@ -1608,7 +1608,7 @@ to be allowed by the specification"
   (declare (type string element))
   (and
    (not (zerop (length element)))
-   (token-el? (aref element 0))
+   (token-el? (elt element 0))
    (every #'token-el? (subseq element 1))))
 
 ; 
@@ -1653,8 +1653,8 @@ to be allowed by the specification"
 (defun quoted-string? (element)
   (and (>= (length element) 2)
        (or (equal element "\"\"")
-	   (and (eql (aref element 0) #\")
-		(eql (aref element (1- (length element))) #\")
+	   (and (eql (elt element 0) #\")
+		(eql (elt element (1- (length element))) #\")
 		(qdtext? (subseq element 1 (1- (length element))))))))
 
 (defun remove-escaped-quotes-helper (input accumulator)
