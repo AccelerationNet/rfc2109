@@ -13,8 +13,10 @@
 ; 
 ; (defpackage
 ; (defun cookie-string
+; (defun cookie-string-from-cookie-struct
 ; (define-condition cookie-error
 ; (define-condition cookie-warning
+; (defstruct (cookie
 
 
 ;; Copyright (c) 2005, Alan Shields
@@ -52,7 +54,11 @@
 (defpackage "RFC2109"
   (:use "COMMON-LISP")
   (:nicknames "COOKIE1")
-  (:export :cookie-string)
+  (:export :cookie-string
+	   :cookie-string-from-cookie-struct
+	   :make-cookie :cookie-name :cookie-value :cookie-comment
+	   :cookie-domain :cookie-max-age :cookie-path :cookie-secure
+	   :cookie-p)
   (:documentation "This package implements RFC2109 - the original cookie specification.
 Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 
@@ -493,6 +499,42 @@ The returned value is suitable for passing in (request-send-headers request :set
       (warn 'cookie-string-exceeds-minimum-length :cookie-string cookie-string))
     cookie-string))
 
+(defstruct (cookie (:print-function print-cookie))
+  "Cookie struct - useful for manipulating cookie values.  Please note
+that just because it's a valid cookie structure doesn't mean that it's
+a valid cookie.  See documentation for COOKIE-STRING for parameter
+information."
+  (name "" :type string)
+  (value "" :type string)
+  (comment nil :type (or string null))
+  (domain nil :type (or string null))
+  (max-age nil :type (or (integer 0) null))
+  (path nil :type (or string null))
+  (secure nil :type boolean))
+
+(defun print-cookie (cookie stream depth)
+  "Prints a representation of cookie to stream.
+Note that this is NOT the equivalent of cookie-string-from-struct. As such,
+it explicity prints an invalid cookie."
+  (declare (ignore depth))
+  (format stream "Cookie(~A:\"~A\"~@[ comment=\"~A\"~]~@[ domain=\"~A\"~]~@[ max-age=\"~A\"~]~@[ path=\"~A\"~]~@[ secure~])"
+	  (cookie-name cookie)
+	  (cookie-value cookie)
+	  (cookie-comment cookie)
+	  (cookie-domain cookie)
+	  (cookie-max-age cookie)
+	  (cookie-path cookie)
+	  (cookie-secure cookie)))
+
+(defun cookie-string-from-cookie-struct (cookie)
+  "Given a cookie struct, return an RFC-compliant cookie string"
+  (cookie-string (cookie-name cookie)
+		 (cookie-value cookie)
+		 :comment (cookie-comment cookie)
+		 :domain (cookie-domain cookie)
+		 :max-age (cookie-max-age cookie)
+		 :path (cookie-path cookie)
+		 :secure (cookie-secure cookie)))
 ; 
 ; 
 ; 
