@@ -66,6 +66,12 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 
 (in-package :rfc2109)
 
+; From section 2.2 - to keep the compiler from whining
+(defvar *ht* (code-char 9))
+(defvar *cr* (code-char 13))
+(defvar *lf* (code-char 10))
+
+
 ; Included here verbatim is RFC2109, the original RFC for cookies.
 ; Yes, there is a newer RFC (2965), but for simplicity I've only implemented
 ; RFC2109.
@@ -1670,10 +1676,8 @@ RFC text below:
 
 (defun octet-el? (datum)
   (typep datum '(or character (integer 0 255))))
-  
-(defvar *ht* (code-char 9))
-(defvar *cr* (code-char 13))
-(defvar *lf* (code-char 10))
+
+; SEE (defvar *ht* above - they're used before here
 
 (defun char-el? (el)
   (let ((char-code (char-code el)))
