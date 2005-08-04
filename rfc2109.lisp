@@ -5,6 +5,8 @@
 ; Includes in whole RFC2109, and in part RFC2608 and the Netscape
 ; cookie spec - not written by me.
 ;
+; NB: this package requires split-sequence, an excellent piece of software.
+;
 ; Patches and commentary are appreciated.
 ;
 
