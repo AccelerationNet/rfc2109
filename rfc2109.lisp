@@ -1,79 +1,22 @@
 ; Written by Alan Shields <Alan-Shields@omrf.ouhsc.edu>, on time paid for
 ; by the Oklahoma Medical Research Foundation - Centola Lab
+; (c) Alan Shields, 2005
 ;
-
-; Includes in whole RFC2109, and in part RFC2608 and the Netscape
-; cookie spec - not written by me.
-;
-; NB: this package requires split-sequence, an excellent piece of software.
+; Includes in whole RFC2109, and in part RFC2608 - not written by me.
+; Released under the BSD license, with the modification that I am not
+; Regents of California.
 ;
 ; Patches and commentary are appreciated.
 ;
 
-; Here are some easy entry points into the code. As there's so much
-; text in this file, just search for these strings and you'll find
-; interesting code - for some value of interesting.
-; 
-; (defpackage
-; (defun cookie-string
-; (defun cookie-string-from-cookie-struct
-; (defun parse-cookies
-; (defun safe-parse-cookies
-; (define-condition cookie-error
-; (define-condition cookie-warning
-; (defstruct (cookie
-
-;; Copyright (c) 2005, Alan Shields
-;;  All rights reserved.
-
-;; Redistribution and use in source and binary forms, with or without
-;; modification, are permitted provided that the following conditions are
-;; met:
-;;
-;; * Redistributions of source code must retain the above copyright
-;;   notice, this list of conditions and the following disclaimer.
-;;
-;; * Redistributions in binary form must reproduce the above copyright
-;;   notice, this list of conditions and the following disclaimer in the
-;;   documentation and/or other materials provided with the distribution.
-;;
-;; * Neither the name of the Oklahoma Medical Research Foundation nor the
-;;   names of its contributors may be used to endorse or promote products
-;;   derived from this software without specific prior written
-;;   permission.
-;;
-;; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-;; "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-;; LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-;; A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-;; OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-;; SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-;; LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-;; DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-;; THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-;; (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-;; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
 (defpackage "RFC2109"
   (:use "COMMON-LISP")
   (:nicknames "COOKIE1")
-  (:export :cookie-string
-	   :cookie-string-from-cookie-struct
-	   :make-cookie :cookie-name :cookie-value :cookie-comment
-	   :cookie-domain :cookie-max-age :cookie-path :cookie-secure
-	   :cookie-p
-	   :parse-cookies :safe-parse-cookies)
+  (:export :cookie-string)
   (:documentation "This package implements RFC2109 - the original cookie specification.
 Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 
 (in-package :rfc2109)
-
-; From section 2.2 - to keep the compiler from whining
-(defvar *ht* (code-char 9))
-(defvar *cr* (code-char 13))
-(defvar *lf* (code-char 10))
-
 
 ; Included here verbatim is RFC2109, the original RFC for cookies.
 ; Yes, there is a newer RFC (2965), but for simplicity I've only implemented
@@ -317,7 +260,7 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
   "Verifies that NAME is a valid name"
   (declare (type string name))
   (and (attr? name)
-       (not (eql #\$ (elt name 0)))))
+       (not (eql #\$ (aref name 0)))))
 
 ; 
 ; 
@@ -358,8 +301,8 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 (defun valid-domain? (domain)
   (declare (type string domain))
   (and (value? domain)
-       (eql #\. (elt domain
-		      (if (eql #\" (elt domain 0))
+       (eql #\. (aref domain
+		      (if (eql #\" (aref domain 0))
 			  1
 			  0)))))
  
@@ -443,14 +386,6 @@ If test is a simple function name it will be turned into (test slot)"
   (declare (type string string))
   (concatenate 'string "\"" string "\""))
 
-(defun remove-quotes-around (string)
-  "If there are quotes, remove them"
-  (declare (type string string))
-  (if (and (eql (elt string 0) #\")
-	   (eql (elt string (1- (length string))) #\"))
-      (subseq string 1 (1- (length string)))
-      string))
-
 (defun cookie-string (name value &key comment domain max-age path secure)
   "Creates a cookie named NAME of value VALUE
 The returned value is suitable for passing in (request-send-headers request :set-cookie cookie).
@@ -500,6 +435,7 @@ The returned value is suitable for passing in (request-send-headers request :set
 ;                    |       "Path" "=" value
 ;                    |       "Secure"
 ;                    |       "Version" "=" 1*DIGIT
+; TODO: Properly-format domain.
   (and (correct name valid-name? "must be a valid name")
        (try-quotes value value? (correct value value? "must be a value"))
        (optional comment (try-quotes comment value?
@@ -517,42 +453,6 @@ The returned value is suitable for passing in (request-send-headers request :set
       (warn 'cookie-string-exceeds-minimum-length :cookie-string cookie-string))
     cookie-string))
 
-(defstruct (cookie (:print-function print-cookie))
-  "Cookie struct - useful for manipulating cookie values.  Please note
-that just because it's a valid cookie structure doesn't mean that it's
-a valid cookie.  See documentation for COOKIE-STRING for parameter
-information."
-  (name "" :type string)
-  (value "" :type string)
-  (comment nil :type (or string null))
-  (domain nil :type (or string null))
-  (max-age nil :type (or (integer 0) null))
-  (path nil :type (or string null))
-  (secure nil :type boolean))
-
-(defun print-cookie (cookie stream depth)
-  "Prints a representation of cookie to stream.
-Note that this is NOT the equivalent of cookie-string-from-struct. As such,
-it explicity prints an invalid cookie."
-  (declare (ignore depth))
-  (format stream "Cookie(~A:\"~A\"~@[ comment=\"~A\"~]~@[ domain=\"~A\"~]~@[ max-age=\"~A\"~]~@[ path=\"~A\"~]~@[ secure~])"
-	  (cookie-name cookie)
-	  (cookie-value cookie)
-	  (cookie-comment cookie)
-	  (cookie-domain cookie)
-	  (cookie-max-age cookie)
-	  (cookie-path cookie)
-	  (cookie-secure cookie)))
-
-(defun cookie-string-from-cookie-struct (cookie)
-  "Given a cookie struct, return an RFC-compliant cookie string"
-  (cookie-string (cookie-name cookie)
-		 (cookie-value cookie)
-		 :comment (cookie-comment cookie)
-		 :domain (cookie-domain cookie)
-		 :max-age (cookie-max-age cookie)
-		 :path (cookie-path cookie)
-		 :secure (cookie-secure cookie)))
 ; 
 ; 
 ; 
@@ -741,98 +641,6 @@ it explicity prints an invalid cookie."
 ;    VALUE           =       value
 ;    path            =       "$Path" "=" value
 ;    domain          =       "$Domain" "=" value
-
-(defun split-along-lws (string)
-  "Chops up a string along linear whitespace, returns a list"
-  (declare (type string string))
-  (split-sequence:split-sequence-if (lambda (c)
-				      (member c (list #\Space *cr* *lf* *ht* #\; #\,)))
-				    string :remove-empty-subseqs t))
-
-(define-condition unparseable-cookie (cookie-error)
-  ((version :initarg :version :reader unparseable-cookie-version)
-   (cookie-string :initarg :cookie-string :reader unparseable-cookie-cookie-string)
-   (message :initarg :message :reader unparseable-cookie-message))
-  (:report (lambda (condition stream)
-	     (format stream "Could not parse cookie.~@[ Attempted as a version ~A.~]~@[~%~A~]
-Cookie text:
-~A"
-		     (unparseable-cookie-version condition)
-		     (unparseable-cookie-message condition)
-		     (unparseable-cookie-cookie-string condition))))
-  (:documentation "Condition returned when all parsing attempts have failed."))
-
-
-(eval-when (:compile-toplevel)
-  (defun assemble-matches (cookie-string cookie key value matches)
-    (when (not (null matches))
-      (destructuring-bind (match-against slot) (car matches)
-	(if (eql match-against 'otherwise)
-	    slot
-	    `(if (string-equal ,key ,match-against)
-	      (if (cookie-p ,cookie)
-		  (setf (,slot ,cookie) (remove-quotes-around ,value))
-		  (error 'unparseable-cookie :version "RFC2109" :cookie-string ,cookie-string :message ,(format nil "~A comes before NAME=VALUE" match-against)))
-	      ,(assemble-matches cookie-string cookie key value (rest matches))))))))
-	
-(defmacro cookie-case (cookie-string cookie key value &body matches)
-  "Helper macro that essentially does a case statement for cookie slots. Used in parse-cookies-v1"
-  (let ((evaluated-key (gensym))
-	(evaluated-value (gensym)))
-    `(let ((,evaluated-key ,key)
-	   (,evaluated-value ,value))
-      ,(assemble-matches cookie-string cookie evaluated-key evaluated-value matches))))
-	
-
-(defun parse-cookies-v1 (cookie-string chopped)
-  "Parses RFC2109 cookies - do not use directly"
-  (let ((interesting-values (rest chopped)) ; skip the version string
-	(cookies nil)
-	(current-cookie nil))
-    (dolist (splitme interesting-values)
-      (destructuring-bind (key value) (split-sequence:split-sequence #\= splitme)
-	(cookie-case cookie-string current-cookie key value
-	  ("$Path" cookie-path)
-	  ("$Domain" cookie-domain)
-	  (otherwise (progn
-		       (when (cookie-p current-cookie)
-			 (push current-cookie cookies))
-		       (setf current-cookie (make-cookie :name key :value (remove-quotes-around value))))))))
-    (when (cookie-p current-cookie)
-      (push current-cookie cookies))
-    cookies))
-			 
-			   
-  
-
-(defun parse-cookies (cookie-string)
-  "Parses cookies in a Cookie: request header, returning a list of COOKIE structs.
-The only information that is passed back for each cookie is: name, value, path, domain, so don't go
-looking for comments or the like.
-
-Note that this function does not want the Cookie: portion of the header
-
-So if the request header looked like:
-Cookie: $Version=1;
-                mycookie=value1;
-                myothercookie=value2
-
-You'd leave off the Cookie: bit at the front.
-
-The other parser is SAFE-PARSE-COOKIES, which is the version to use when you can."
-  (let* ((chopped (split-along-lws cookie-string))
-	 (version-string (car chopped)))
-    (if (string-equal "$Version="
-		      (subseq version-string 0 (length "$Version=")))
-	(let ((version (read-from-string (remove-quotes-around (second (split-sequence:split-sequence #\= version-string))))))
-	  (case version
-	    ((0 1) (parse-cookies-v1 cookie-string chopped))
-	    (otherwise (error 'unparseable-cookie
-			      :version version
-			      :cookie-string cookie-string
-			      :message "I don't know how to parse this type of cookie"))))
-	(parse-cookies-vnetscape cookie-string))))
-
 ; 
 ;    The value of the cookie-version attribute must be the value from the
 ;    Version attribute, if any, of the corresponding Set-Cookie response
@@ -1342,54 +1150,6 @@ to be allowed by the specification"
 ;          cookie was not one it originated by noticing that the Domain
 ;          attribute is not for itself and ignore it.
 ; 
-
-(defun safe-parse-cookies (cookie-string domain-restriction)
-  "Parse a cookie string (see parse-cookies), but remove all cookies that do not match domain-specification
-RFC 2109 specifies that, in order to avoid a cookie spoofing attack,
-one should check that the domain being handed back in your cookie is
-not the domain you gave out.
-
-In other words: cookies must either have no domain (as no domain was given)
-or the domain you previously gave out. It is advised that you always
-give out a domain restriction.
-
-It might be better to go paranoid eventually and only accept cookies with
-our domain restriction...we'll see.
-
-RFC text below: 
-
-  8.2  Cookie Spoofing
-  
-     Proper application design can avoid spoofing attacks from related
-     domains.  Consider:
-  
-       1.  User agent makes request to victim.cracker.edu, gets back
-           cookie session_id=\"1234\" and sets the default domain
-           victim.cracker.edu.
-  
-       2.  User agent makes request to spoof.cracker.edu, gets back
-           cookie session-id=\"1111\", with Domain=\".cracker.edu\".
-  
-       3.  User agent makes request to victim.cracker.edu again, and
-           passes
-  
-           Cookie: $Version=\"1\";
-                           session_id=\"1234\";
-                           session_id=\"1111\"; $Domain=\".cracker.edu\"
-  
-           The server at victim.cracker.edu should detect that the second
-           cookie was not one it originated by noticing that the Domain
-           attribute is not for itself and ignore it.
-
-"
-  (let ((cookies (parse-cookies cookie-string)))
-    (remove-if (lambda (cookie)
-		 (not
-		  (or (eql nil (cookie-domain cookie))
-		      (equal "" (cookie-domain cookie))
-		      (equal domain-restriction (cookie-domain cookie)))))
-	       cookies)))
-
 ; 8.3  Unexpected Cookie Sharing
 ; 
 ;    A user agent should make every attempt to prevent the sharing of
@@ -1677,8 +1437,10 @@ RFC text below:
 
 (defun octet-el? (datum)
   (typep datum '(or character (integer 0 255))))
-
-; SEE (defvar *ht* above - they're used before here
+  
+(defvar *ht* (code-char 9))
+(defvar *cr* (code-char 13))
+(defvar *lf* (code-char 10))
 
 (defun char-el? (el)
   (let ((char-code (char-code el)))
@@ -1765,7 +1527,7 @@ RFC text below:
   (declare (type string element))
   (and
    (not (zerop (length element)))
-   (token-el? (elt element 0))
+   (token-el? (aref element 0))
    (every #'token-el? (subseq element 1))))
 
 ; 
@@ -1810,50 +1572,24 @@ RFC text below:
 (defun quoted-string? (element)
   (and (>= (length element) 2)
        (or (equal element "\"\"")
-	   (and (eql (elt element 0) #\")
-		(eql (elt element (1- (length element))) #\")
-		(qdtext? (subseq element 1 (1- (length element))))))))
-
-(defun remove-escaped-quotes-helper (input accumulator)
-  (declare (type list input)
-	   (type list accumulator))
-  (if (null input)
-      (coerce (reverse accumulator) 'string)
-      (if (and (eql (first input) #\\)
-	       (eql (second input) #\"))
-	  (remove-escaped-quotes-helper (cddr input) accumulator)
-	  (remove-escaped-quotes-helper (cdr input) (cons (car input) accumulator)))))
+	   (and (eql (aref element 0) #\")
+		(eql (aref element (1- (length element))) #\")
+		(qdtext? (remove-escaped-quotes (subseq element 1 (1- (length element)))))))))
 
 (defun remove-escaped-quotes (string)
-  (remove-escaped-quotes-helper (coerce string 'list) nil))
+  (labels ((remove-escaped-quotes-helper (input accumulator)
+	     (declare (type list input)
+		      (type list accumulator))
+	     (if (null input)
+		 (coerce (reverse accumulator) 'string)
+		 (if (and (eql (first input) #\\)
+			  (eql (second input) #\"))
+		     (remove-escaped-quotes-helper (cddr input) accumulator)
+		     (remove-escaped-quotes-helper (cdr input) (cons (car input) accumulator))))))
+    (remove-escaped-quotes-helper (coerce string 'list) nil)))
   
 (defun qdtext? (element)
   (and
    (text? element)
    (not (find #\" element))))
 
-
-; From Client Side State - Netscape spec for the original cookies
-; Located at: http://wp.netscape.com/newsref/std/cookie_spec.html
-;
-;;  Syntax of the Cookie HTTP Request Header
-;;  
-;;   When requesting a URL from an HTTP server, the browser will match the
-;;  URL against all cookies and if any of them match, a line containing
-;;  the name/value pairs of all matching cookies will be included in the
-;;  HTTP request. Here is the format of that line:
-;;  
-;;  Cookie: NAME1=OPAQUE_STRING1; NAME2=OPAQUE_STRING2 ...
-;;  
-;;
-(defun trim-spaces (string)
-  (declare (type string string))
-  (string-trim (list #\Space *cr* *lf* *ht*) string))
-
-(defun parse-cookies-vnetscape (cookie-string)
-  "Parses old netscape-style cookies"
-  (let ((cookies nil))
-    (dolist (cookie (split-sequence:split-sequence #\; cookie-string :remove-empty-subseqs t))
-      (destructuring-bind (name value) (split-sequence:split-sequence #\= cookie)
-	(push (make-cookie :name (trim-spaces name) :value (trim-spaces value)) cookies)))
-    cookies))
