@@ -260,7 +260,7 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
   "Verifies that NAME is a valid name"
   (declare (type string name))
   (and (attr? name)
-       (not (eql #\$ (aref name 0)))))
+       (not (eql #\$ (elt name 0)))))
 
 ; 
 ; 
@@ -293,18 +293,14 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 ;       with a dot.
 
 ; the standard here is unclear - the revised standard specifies this in far
-; more detail, however it has some changes. As a result, I am assuming that
-; all domains are explicitly specified.
+; more detail, however it has some changes. As a result, I am only
+; checking that the domain is a valid value
 ;
 ; This "valid-domain?" checks that the domain is valid in and of itself, not
 ; in relation to the request-host (see 4.3.2  Rejecting Cookies)
 (defun valid-domain? (domain)
   (declare (type string domain))
-  (and (value? domain)
-       (eql #\. (aref domain
-		      (if (eql #\" (aref domain 0))
-			  1
-			  0)))))
+  (value? domain))
  
 ;    Max-Age=delta-seconds
 ;       Optional.  The Max-Age attribute defines the lifetime of the
@@ -1527,7 +1523,7 @@ to be allowed by the specification"
   (declare (type string element))
   (and
    (not (zerop (length element)))
-   (token-el? (aref element 0))
+   (token-el? (elt element 0))
    (every #'token-el? (subseq element 1))))
 
 ; 
@@ -1572,21 +1568,22 @@ to be allowed by the specification"
 (defun quoted-string? (element)
   (and (>= (length element) 2)
        (or (equal element "\"\"")
-	   (and (eql (aref element 0) #\")
-		(eql (aref element (1- (length element))) #\")
-		(qdtext? (remove-escaped-quotes (subseq element 1 (1- (length element)))))))))
+	   (and (eql (elt element 0) #\")
+		(eql (elt element (1- (length element))) #\")
+		(qdtext? (subseq element 1 (1- (length element))))))))
+
+(defun remove-escaped-quotes-helper (input accumulator)
+  (declare (type list input)
+	   (type list accumulator))
+  (if (null input)
+      (coerce (reverse accumulator) 'string)
+      (if (and (eql (first input) #\\)
+	       (eql (second input) #\"))
+	  (remove-escaped-quotes-helper (cddr input) accumulator)
+	  (remove-escaped-quotes-helper (cdr input) (cons (car input) accumulator)))))
 
 (defun remove-escaped-quotes (string)
-  (labels ((remove-escaped-quotes-helper (input accumulator)
-	     (declare (type list input)
-		      (type list accumulator))
-	     (if (null input)
-		 (coerce (reverse accumulator) 'string)
-		 (if (and (eql (first input) #\\)
-			  (eql (second input) #\"))
-		     (remove-escaped-quotes-helper (cddr input) accumulator)
-		     (remove-escaped-quotes-helper (cdr input) (cons (car input) accumulator))))))
-    (remove-escaped-quotes-helper (coerce string 'list) nil)))
+  (remove-escaped-quotes-helper (coerce string 'list) nil))
   
 (defun qdtext? (element)
   (and
