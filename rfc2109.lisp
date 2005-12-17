@@ -858,18 +858,20 @@ Cookie: $Version=1;
 You'd leave off the Cookie: bit at the front.
 
 The other parser is SAFE-PARSE-COOKIES, which is the version to use when you can."
-  (let* ((chopped (split-along-quoted-lws cookie-string))
-	 (version-string (car chopped)))
-    (if (string-equal "$Version="
-		      (subseq version-string 0 (length "$Version=")))
-	(let ((version (read-from-string (remove-quotes-around (second (split-sequence:split-sequence #\= version-string))))))
-	  (case version
-	    ((0 1) (parse-cookies-v1 cookie-string chopped))
-	    (otherwise (error 'unparseable-cookie
-			      :version version
-			      :cookie-string cookie-string
-			      :message "I don't know how to parse this type of cookie"))))
-	(parse-cookies-vnetscape cookie-string))))
+  (when (not (or (null cookie-string)
+		 (equal "" cookie-string)))
+    (let* ((chopped (split-along-quoted-lws cookie-string))
+	   (version-string (car chopped)))
+      (if (string-equal "$Version="
+			(subseq version-string 0 (length "$Version=")))
+	  (let ((version (read-from-string (remove-quotes-around (second (split-sequence:split-sequence #\= version-string))))))
+	    (case version
+	      ((0 1) (parse-cookies-v1 cookie-string chopped))
+	      (otherwise (error 'unparseable-cookie
+				:version version
+				:cookie-string cookie-string
+				:message "I don't know how to parse this type of cookie"))))
+	  (parse-cookies-vnetscape cookie-string)))))
 
 ; 
 ;    The value of the cookie-version attribute must be the value from the
