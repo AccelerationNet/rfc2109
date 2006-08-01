@@ -862,8 +862,9 @@ The other parser is SAFE-PARSE-COOKIES, which is the version to use when you can
 		 (equal "" cookie-string)))
     (let* ((chopped (split-along-quoted-lws cookie-string))
 	   (version-string (car chopped)))
-      (if (string-equal "$Version="
-			(subseq version-string 0 (length "$Version=")))
+      (if (and (> (length version-string) (length "$Version="))
+	       (string-equal "$Version="
+			     (subseq version-string 0 (length "$Version="))))
 	  (let ((version (read-from-string (remove-quotes-around (second (split-sequence:split-sequence #\= version-string))))))
 	    (case version
 	      ((0 1) (parse-cookies-v1 cookie-string chopped))
