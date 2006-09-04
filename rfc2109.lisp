@@ -442,7 +442,7 @@ If test is a simple function name it will be turned into (test slot)"
       (subseq string 1 (1- (length string)))
       string))
 
-(defun cookie-string (name value &key comment domain max-age path secure)
+(defun cookie-string (name value &key comment domain max-age path secure (corrects-path-p nil))
   "Creates a cookie named NAME of value VALUE
 The returned value is suitable for passing in (request-send-headers request :set-cookie cookie).
 
@@ -482,7 +482,13 @@ The returned value is suitable for passing in (request-send-headers request :set
     what level of security it considers appropriate for \"secure\"
     cookies.  The Secure attribute should be considered security
     advice from the server to the user agent, indicating that it is in
-    the session's interest to protect the cookie contents."
+    the session's interest to protect the cookie contents.
+
+ corrects-path-p (true or false)
+    If this is true, PATH is specified to be a quoted string, in conformance
+    with the standard. Otherwise, whatever string is provided to PATH is used.
+    This may be used to cludge compatibility with current browsers' broken
+    handling of the path option."
 ;    NAME            =       attr
 ;    VALUE           =       value
 ;    cookie-av       =       "Comment" "=" value
@@ -499,8 +505,10 @@ The returned value is suitable for passing in (request-send-headers request :set
        (optional domain (try-quotes domain valid-domain?
 			  (correct domain valid-domain? "must be an explicit valid domain")))
        (optional max-age (correct max-age (and (integerp max-age) (> max-age 0)) "must be an integer greater than 0"))
-       (optional path (try-quotes path value?
-			(correct path value? "must be a value")))
+       (if corrects-path-p
+	   (optional path (try-quotes path value?
+				      (correct path value? "must be a value")))
+	   (optional path path))
        (correct secure (or (eql secure t) (eql secure nil)) "must be t or nil"))
   (let ((cookie-string
 	 (format nil "~A=~A~@[;comment=~A~]~@[;domain=~A~]~@[;max-age=~A~]~@[;path=~A~]~@[;secure~];version=1"
@@ -741,50 +749,6 @@ it explicity prints an invalid cookie."
 				      (member c (list #\Space *cr* *lf* *ht* #\; #\,)))
 				    string :remove-empty-subseqs t))
 
-(defun split-along-quoted-lws (string)
-  "Chops up a string along linear whitespace, but this version knows about quote marks"
-  (declare (type string string))
-  (labels ((splitter (to-be-processed token-accumulator string-accumulator in-quotes)
-	     (if (null to-be-processed)
-		 (reverse (if token-accumulator
-			      (cons (coerce (reverse token-accumulator) 'string) string-accumulator)
-			      string-accumulator))
-		 (let ((this-token (car to-be-processed)))
-		   (if in-quotes
-		       (cond
-			 ((eql this-token #\") (splitter (rest to-be-processed)
-							 (cons this-token token-accumulator)
-							 string-accumulator
-							 nil))
-			 ((and (eql this-token #\\)
-			       (eql (second to-be-processed) #\")) (splitter (cddr to-be-processed)
-									     (cons (second to-be-processed)
-										   (cons this-token token-accumulator))
-									     string-accumulator
-									     t))
-			 (t (splitter (rest to-be-processed)
-				      (cons this-token token-accumulator)
-				      string-accumulator
-				      t)))
-		       (if (member this-token (list #\Space *cr* *lf* *ht* #\; #\,))
-			   (splitter (rest to-be-processed)
-				     nil
-				     (if token-accumulator
-					 (cons (coerce (reverse token-accumulator) 'string)
-					       string-accumulator)
-					 string-accumulator)
-				     nil)
-			   (if (eql this-token #\")
-			       (splitter (rest to-be-processed)
-					 (cons this-token token-accumulator)
-					 string-accumulator
-					 t)
-			       (splitter (rest to-be-processed)
-					 (cons this-token token-accumulator)
-					 string-accumulator
-					 nil))))))))
-    (splitter (coerce string 'list) nil nil nil)))
-
 (define-condition unparseable-cookie (cookie-error)
   ((version :initarg :version :reader unparseable-cookie-version)
    (cookie-string :initarg :cookie-string :reader unparseable-cookie-cookie-string)
@@ -858,21 +822,18 @@ Cookie: $Version=1;
 You'd leave off the Cookie: bit at the front.
 
 The other parser is SAFE-PARSE-COOKIES, which is the version to use when you can."
-  (when (not (or (null cookie-string)
-		 (equal "" cookie-string)))
-    (let* ((chopped (split-along-quoted-lws cookie-string))
-	   (version-string (car chopped)))
-      (if (and (> (length version-string) #.(length "$Version="))
-	       (string-equal "$Version="
-			     (subseq version-string 0 #.(length "$Version="))))
-	  (let ((version (read-from-string (remove-quotes-around (second (split-sequence:split-sequence #\= version-string))))))
-	    (case version
-	      ((0 1) (parse-cookies-v1 cookie-string chopped))
-	      (otherwise (error 'unparseable-cookie
-				:version version
-				:cookie-string cookie-string
-				:message "I don't know how to parse this type of cookie"))))
-	  (parse-cookies-vnetscape cookie-string)))))
+  (let* ((chopped (split-along-lws cookie-string))
+	 (version-string (car chopped)))
+    (if (string-equal "$Version="
+		      (subseq version-string 0 (length "$Version=")))
+	(let ((version (read-from-string (remove-quotes-around (second (split-sequence:split-sequence #\= version-string))))))
+	  (case version
+	    ((0 1) (parse-cookies-v1 cookie-string chopped))
+	    (otherwise (error 'unparseable-cookie
+			      :version version
+			      :cookie-string cookie-string
+			      :message "I don't know how to parse this type of cookie"))))
+	(parse-cookies-vnetscape cookie-string))))
 
 ; 
 ;    The value of the cookie-version attribute must be the value from the
