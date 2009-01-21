@@ -1,18 +1,64 @@
 ; Written by Alan Shields <Alan-Shields@omrf.ouhsc.edu>, on time paid for
 ; by the Oklahoma Medical Research Foundation - Centola Lab
-; (c) Alan Shields, 2005
 ;
+
 ; Includes in whole RFC2109, and in part RFC2608 - not written by me.
-; Released under the BSD license, with the modification that I am not
-; Regents of California.
 ;
 ; Patches and commentary are appreciated.
 ;
 
+; Here are some easy entry points into the code. As there's so much
+; text in this file, just search for these strings and you'll find
+; interesting code - for some value of interesting.
+; 
+; (defpackage
+; (defun cookie-string
+; (defun cookie-string-from-cookie-struct
+; (define-condition cookie-error
+; (define-condition cookie-warning
+; (defstruct (cookie
+
+
+;; Copyright (c) 2005, Alan Shields
+;;  All rights reserved.
+
+;; Redistribution and use in source and binary forms, with or without
+;; modification, are permitted provided that the following conditions are
+;; met:
+;;
+;; * Redistributions of source code must retain the above copyright
+;;   notice, this list of conditions and the following disclaimer.
+;;
+;; * Redistributions in binary form must reproduce the above copyright
+;;   notice, this list of conditions and the following disclaimer in the
+;;   documentation and/or other materials provided with the distribution.
+;;
+;; * Neither the name of the Oklahoma Medical Research Foundation nor the
+;;   names of its contributors may be used to endorse or promote products
+;;   derived from this software without specific prior written
+;;   permission.
+;;
+;; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+;; "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+;; LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+;; A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+;; OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+;; SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+;; LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+;; DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+;; THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+;; (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+;; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
 (defpackage "RFC2109"
   (:use "COMMON-LISP")
   (:nicknames "COOKIE1")
-  (:export :cookie-string)
+  (:export :cookie-string
+	   :cookie-string-from-cookie-struct
+	   :make-cookie :cookie-name :cookie-value :cookie-comment
+	   :cookie-domain :cookie-max-age :cookie-path :cookie-secure
+	   :cookie-p)
   (:documentation "This package implements RFC2109 - the original cookie specification.
 Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 
@@ -442,7 +488,7 @@ The returned value is suitable for passing in (request-send-headers request :set
 			   (correct comment value? "must be a value")))
        (optional domain (try-quotes domain valid-domain?
 			  (correct domain valid-domain? "must be an explicit valid domain")))
-       (optional max-age (correct max-age (and (integerp max-age) (>= max-age 0)) "must be a non-negative integer"))
+       (optional max-age (correct max-age (and (integerp max-age) (> max-age 0)) "must be an integer greater than 0"))
        (optional path (try-quotes path value?
 			(correct path value? "must be a value")))
        (correct secure (or (eql secure t) (eql secure nil)) "must be t or nil"))
@@ -453,6 +499,40 @@ The returned value is suitable for passing in (request-send-headers request :set
       (warn 'cookie-string-exceeds-minimum-length :cookie-string cookie-string))
     cookie-string))
 
+(defstruct (cookie (:print-function print-cookie))
+  "Cookie struct - useful for manipulating cookie values.  Please note
+that just because it's a valid cookie structure doesn't mean that it's
+a valid cookie.  See documentation for COOKIE-STRING for parameter
+information."
+  (name "" :type string)
+  (value "" :type string)
+  (comment nil :type (or string null))
+  (domain nil :type (or string null))
+  (max-age nil :type (or (integer 0) null))
+  (path nil :type (or string null))
+  (secure nil :type boolean))
+
+(defun print-cookie (cookie stream depth)
+  "Prints an aesthetic representation of COOKIE to STREAM. Note that this is *not* the equivalent of COOKIE-STRING-FROM-COOKIE-STRUCT. As such, it explicity prints an invalid cookie."
+  (declare (ignore depth))
+  (format stream "Cookie(~A:\"~A\"~@[ comment=\"~A\"~]~@[ domain=\"~A\"~]~@[ max-age=~A~]~@[ path=\"~A\"~]~@[ secure~])"
+	  (cookie-name cookie)
+	  (cookie-value cookie)
+	  (cookie-comment cookie)
+	  (cookie-domain cookie)
+	  (cookie-max-age cookie)
+	  (cookie-path cookie)
+	  (cookie-secure cookie)))
+
+(defun cookie-string-from-cookie-struct (cookie)
+  "Given a cookie struct, return an RFC-compliant cookie string"
+  (cookie-string (cookie-name cookie)
+		 (cookie-value cookie)
+		 :comment (cookie-comment cookie)
+		 :domain (cookie-domain cookie)
+		 :max-age (cookie-max-age cookie)
+		 :path (cookie-path cookie)
+		 :secure (cookie-secure cookie)))
 ; 
 ; 
 ; 
