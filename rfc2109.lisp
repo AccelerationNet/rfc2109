@@ -2,7 +2,17 @@
 ; by the Oklahoma Medical Research Foundation - Centola Lab
 ;
 
-; Includes in whole RFC2109, and in part RFC2608 - not written by me.
+;-begindoc
+; Includes in whole RFC2109, and in part RFC2608 and the Netscape
+; cookie spec - not written by me.
+;
+; The whole "-begindoc" "-enddoc" mess is so that the not-written-by-me
+; stuff can be stripped if the packager so desires. This can prevent
+; what may be charitably referred to as "licensing issues".
+; Thank you for your cooperation. - Management
+;-enddoc
+;
+; NB: this package requires split-sequence, an excellent piece of software.
 ;
 ; Patches and commentary are appreciated.
 ;
@@ -14,10 +24,12 @@
 ; (defpackage
 ; (defun cookie-string
 ; (defun cookie-string-from-cookie-struct
+; (defun parse-cookies
+; (defun safe-parse-cookies
 ; (define-condition cookie-error
 ; (define-condition cookie-warning
 ; (defstruct (cookie
-
+; (defun domain-match-p
 
 ;; Copyright (c) 2005, Alan Shields
 ;;  All rights reserved.
@@ -51,24 +63,43 @@
 ;; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-(defpackage "RFC2109"
-  (:use "COMMON-LISP")
-  (:nicknames "COOKIE1")
+(defpackage :rfc2109
+  (:use :common-lisp)
+  (:nicknames :cookie1)
   (:export :cookie-string
 	   :cookie-string-from-cookie-struct
 	   :make-cookie :cookie-name :cookie-value :cookie-comment
 	   :cookie-domain :cookie-max-age :cookie-path :cookie-secure
-	   :cookie-p)
+	   :cookie-p
+	   :domain-match-p
+	   :parse-cookies :safe-parse-cookies)
   (:documentation "This package implements RFC2109 - the original cookie specification.
 Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 
 (in-package :rfc2109)
 
+#+test(eval-when (:compile-toplevel :load-toplevel)
+        (unintern 'rfc2109::test)
+        (use-package (find-package :it.bese.fiveam)))
+
+#+test(def-suite :rfc2109)
+#+test(in-suite :rfc2109)
+
+; From section 2.2 - to keep the compiler from whining
+(defvar *ht* (code-char 9))
+(defvar *cr* (code-char 13))
+(defvar *lf* (code-char 10))
+
+
+;-begindoc
 ; Included here verbatim is RFC2109, the original RFC for cookies.
+;-enddoc
 ; Yes, there is a newer RFC (2965), but for simplicity I've only implemented
 ; RFC2109.
 ;
+;-begindoc
 ; Code is inline
+;-enddoc
 
 ; Notes about the implementation:
 ; - Currently this bit of code is only for the generation of
@@ -76,7 +107,7 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 ;   and not about parsing it. In the future, parsing may be added as well.
 
 
-
+;-begindoc
 ; Network Working Group                                         D. Kristol
 ; Request for Comments: 2109        Bell Laboratories, Lucent Technologies
 ; Category: Standards Track                                    L. Montulli
@@ -148,7 +179,40 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 ; 
 ;    Note that domain-match is not a commutative operation: a.b.c.com
 ;    domain-matches .c.com, but not the reverse.
-; 
+;-enddoc
+
+; Currently we do NOT check to see if the IP addresses or FQDNs are valid
+; in fact, this predicate could easily be fooled by giving it "127.0.0.1" ".0.0.1"
+(defun domain-match-p (host-a host-b)
+  "Checks to see if host-a \"domain-matches\" host-b, per RFC2109
+From the RFC:
+    Hosts names can be specified either as an IP address or a FQHN
+    string.  Sometimes we compare one host name with another.  Host A's
+    name domain-matches host B's if
+ 
+    * both host names are IP addresses and their host name strings match
+      exactly; or
+ 
+    * both host names are FQDN strings and their host name strings match
+      exactly; or
+ 
+    * A is a FQDN string and has the form NB, where N is a non-empty name
+      string, B has the form .B', and B' is a FQDN string.  (So, x.y.com
+      domain-matches .y.com but not y.com.)
+ 
+    Note that domain-match is not a commutative operation: a.b.c.com
+    domain-matches .c.com, but not the reverse."
+  (declare (type string host-a host-b))
+  (or (string-equal host-a host-b)
+      (if (eql #\. (elt host-b 0))
+	  (let* ((b-prime (subseq host-b 1))
+		 (n (subseq host-a 0 (1- (search b-prime host-a)))))
+	    (and (not (zerop (length n)))
+		 (string-equal host-a (concatenate 'string n "." b-prime)))))))
+		 
+	    
+      
+;-begindoc 
 ;    Because it was used in Netscape's original implementation of state
 ;    management, we will use the term cookie to refer to the state
 ;    information that passes between an origin server and user agent, and
@@ -219,22 +283,23 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 ; 
 ;    NOTE: The syntax above allows whitespace between the attribute and
 ;    the = sign.
+;-enddoc
 
 (defun attr? (element)
   "Determine if element is an attr"
   (token? element))
 (defun value? (element)
   "Determine if element is a value"
-  (word? element))
+  (or (zerop (length element))
+      (word? element)))
 (defun word? (element)
   "Determine if element is a word"
   (or (token? element)
       (quoted-string? element)))
-      
+;-begindoc  
 ; RFC 2068 defines token and quoted string. The relevant section
 ; is included below this RFC.
 
-  
 ; 
 ; 4.2  Origin Server Role
 ; 
@@ -301,13 +366,14 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 ;       Required.  The name of the state information ("cookie") is NAME,
 ;       and its value is VALUE.  NAMEs that begin with $ are reserved for
 ;       other uses and must not be used by applications.
+;-enddoc
 
 (defun valid-name? (name)
   "Verifies that NAME is a valid name"
   (declare (type string name))
   (and (attr? name)
-       (not (eql #\$ (aref name 0)))))
-
+       (not (eql #\$ (elt name 0)))))
+;-begindoc
 ; 
 ; 
 ; 
@@ -337,21 +403,7 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 ;       Optional.  The Domain attribute specifies the domain for which the
 ;       cookie is valid.  An explicitly specified domain must always start
 ;       with a dot.
-
-; the standard here is unclear - the revised standard specifies this in far
-; more detail, however it has some changes. As a result, I am assuming that
-; all domains are explicitly specified.
 ;
-; This "valid-domain?" checks that the domain is valid in and of itself, not
-; in relation to the request-host (see 4.3.2  Rejecting Cookies)
-(defun valid-domain? (domain)
-  (declare (type string domain))
-  (and (value? domain)
-       (eql #\. (aref domain
-		      (if (eql #\" (aref domain 0))
-			  1
-			  0)))))
- 
 ;    Max-Age=delta-seconds
 ;       Optional.  The Max-Age attribute defines the lifetime of the
 ;       cookie, in seconds.  The delta-seconds value is a decimal non-
@@ -379,6 +431,7 @@ Use it to generate (and eventually parse) cookies in an RFC-compliant way."))
 ;       which version of the state management specification the cookie
 ;       conforms.  For this specification, Version=1 applies.
 ; 
+;-enddoc
 
 (define-condition cookie-error (error)
   ())
@@ -432,7 +485,15 @@ If test is a simple function name it will be turned into (test slot)"
   (declare (type string string))
   (concatenate 'string "\"" string "\""))
 
-(defun cookie-string (name value &key comment domain max-age path secure)
+(defun remove-quotes-around (string)
+  "If there are quotes, remove them"
+  (declare (type string string))
+  (if (and (eql (elt string 0) #\")
+	   (eql (elt string (1- (length string))) #\"))
+      (subseq string 1 (1- (length string)))
+      string))
+
+(defun cookie-string (name value &key comment domain max-age path secure (corrects-path-p nil))
   "Creates a cookie named NAME of value VALUE
 The returned value is suitable for passing in (request-send-headers request :set-cookie cookie).
 
@@ -463,6 +524,10 @@ The returned value is suitable for passing in (request-send-headers request :set
     The Path attribute specifies the subset of URLs to
     which this cookie applies.
 
+NB: Mozilla (pre-Deer-Park), IE, and links all fail with RFC-compliant
+PATHs. As such, it is recommended to set the cookie in the root of your
+web app's URI, and not include a path argument.
+
  Secure (true or false)
     The Secure attribute directs the user
     agent to use only (unspecified) secure means to contact the origin
@@ -472,7 +537,14 @@ The returned value is suitable for passing in (request-send-headers request :set
     what level of security it considers appropriate for \"secure\"
     cookies.  The Secure attribute should be considered security
     advice from the server to the user agent, indicating that it is in
-    the session's interest to protect the cookie contents."
+    the session's interest to protect the cookie contents.
+
+ corrects-path-p (true or false)
+    If this is true, PATH is specified to be a quoted string, in conformance
+    with the standard. Otherwise, whatever string is provided to PATH is used.
+    This may be used to cludge compatibility with current browsers' broken
+    handling of the path option."
+;-begindoc
 ;    NAME            =       attr
 ;    VALUE           =       value
 ;    cookie-av       =       "Comment" "=" value
@@ -481,16 +553,18 @@ The returned value is suitable for passing in (request-send-headers request :set
 ;                    |       "Path" "=" value
 ;                    |       "Secure"
 ;                    |       "Version" "=" 1*DIGIT
-; TODO: Properly-format domain.
+;-enddoc
   (and (correct name valid-name? "must be a valid name")
        (try-quotes value value? (correct value value? "must be a value"))
        (optional comment (try-quotes comment value?
 			   (correct comment value? "must be a value")))
        (optional domain (try-quotes domain valid-domain?
 			  (correct domain valid-domain? "must be an explicit valid domain")))
-       (optional max-age (correct max-age (and (integerp max-age) (> max-age 0)) "must be an integer greater than 0"))
-       (optional path (try-quotes path value?
-			(correct path value? "must be a value")))
+       (optional max-age (correct max-age (and (integerp max-age) (>= max-age 0)) "must be a non-negative integer"))
+       (if corrects-path-p
+	   (optional path (try-quotes path value?
+				      (correct path value? "must be a value")))
+	   (optional path path))
        (correct secure (or (eql secure t) (eql secure nil)) "must be t or nil"))
   (let ((cookie-string
 	 (format nil "~A=~A~@[;comment=~A~]~@[;domain=~A~]~@[;max-age=~A~]~@[;path=~A~]~@[;secure~];version=1"
@@ -533,6 +607,7 @@ information."
 		 :max-age (cookie-max-age cookie)
 		 :path (cookie-path cookie)
 		 :secure (cookie-secure cookie)))
+;-begindoc
 ; 
 ; 
 ; 
@@ -640,7 +715,17 @@ information."
 ;    * The request-host is a FQDN (not IP address) and has the form HD,
 ;      where D is the value of the Domain attribute, and H is a string
 ;      that contains one or more dots.
-; 
+;-enddoc
+
+; This "valid-domain?" checks that the domain is valid in and of itself, not
+; in relation to the request-host (see 4.3.2  Rejecting Cookies)
+(defun valid-domain? (domain)
+  (declare (type string domain))
+  (and (eql #\. (elt domain 0)) ; must start with a dot
+       (find #\. (subseq domain 1 (1- (length domain)))) ; must contain an embedded dot
+       (value? domain))) ; must be a value
+
+;-begindoc 
 ;    Examples:
 ; 
 ;    * A Set-Cookie from request-host y.x.foo.com for Domain=.foo.com
@@ -660,6 +745,15 @@ information."
 ; 
 ;    * A Set-Cookie with Domain=ajax.com will be rejected because the
 ;      value for Domain does not begin with a dot.
+;-enddoc
+
+#+test(test reject-per-4.3.2
+	  "Test domains for rejection per 4.3.2"
+	  (is (valid-domain? ".foo.com"))
+	  (is (not (valid-domain? ".com")))
+	  (is (not (valid-domain? ".com.")))
+	  (is (not (valid-domain? "ajax.com"))))
+;-begindoc	      
 ; 
 ; 4.3.3  Cookie Management
 ; 
@@ -721,6 +815,153 @@ information."
 ;    VALUE           =       value
 ;    path            =       "$Path" "=" value
 ;    domain          =       "$Domain" "=" value
+;-enddoc
+
+(defun split-along-lws (string)
+  "Chops up a string along linear whitespace, returns a list"
+  (declare (type string string))
+  (split-sequence:split-sequence-if (lambda (c)
+				      (member c (list #\Space *cr* *lf* *ht* #\; #\,)))
+				    string :remove-empty-subseqs t))
+
+(defun split-along-quoted-lws (string)
+  "Chops up a string along linear whitespace, but this version knows about quote marks"
+  (declare (type string string))
+  (labels ((splitter (to-be-processed token-accumulator string-accumulator in-quotes)
+	     (if (null to-be-processed)
+		 (reverse (if token-accumulator
+			      (cons (coerce (reverse token-accumulator) 'string) string-accumulator)
+			      string-accumulator))
+		 (let ((this-token (car to-be-processed)))
+		   (if in-quotes
+		       (cond
+			 ((eql this-token #\") (splitter (rest to-be-processed)
+							 (cons this-token token-accumulator)
+							 string-accumulator
+							 nil))
+			 ((and (eql this-token #\\)
+			       (eql (second to-be-processed) #\")) (splitter (cddr to-be-processed)
+									     (cons (second to-be-processed)
+										   (cons this-token token-accumulator))
+									     string-accumulator
+									     t))
+			 (t (splitter (rest to-be-processed)
+				      (cons this-token token-accumulator)
+				      string-accumulator
+				      t)))
+		       (if (member this-token (list #\Space *cr* *lf* *ht* #\; #\,))
+			   (splitter (rest to-be-processed)
+				     nil
+				     (if token-accumulator
+					 (cons (coerce (reverse token-accumulator) 'string)
+					       string-accumulator)
+					 string-accumulator)
+				     nil)
+			   (if (eql this-token #\")
+			       (splitter (rest to-be-processed)
+					 (cons this-token token-accumulator)
+					 string-accumulator
+					 t)
+			       (splitter (rest to-be-processed)
+					 (cons this-token token-accumulator)
+					 string-accumulator
+					 nil))))))))
+    (splitter (coerce string 'list) nil nil nil)))
+
+(define-condition unparseable-cookie (cookie-error)
+  ((version :initarg :version :reader unparseable-cookie-version)
+   (cookie-string :initarg :cookie-string :reader unparseable-cookie-cookie-string)
+   (message :initarg :message :reader unparseable-cookie-message))
+  (:report (lambda (condition stream)
+	     (format stream "Could not parse cookie.~@[ Attempted as a version ~A.~]~@[~%~A~]
+Cookie text:
+~A"
+		     (unparseable-cookie-version condition)
+		     (unparseable-cookie-message condition)
+		     (unparseable-cookie-cookie-string condition))))
+  (:documentation "Condition returned when all parsing attempts have failed."))
+
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun assemble-matches (cookie-string cookie key value matches)
+    (when (not (null matches))
+      (destructuring-bind (match-against slot) (car matches)
+	(if (eql match-against 'otherwise)
+	    slot
+	    `(if (string-equal ,key ,match-against)
+	      (if (cookie-p ,cookie)
+		  (setf (,slot ,cookie) (remove-quotes-around ,value))
+		  (error 'unparseable-cookie :version "RFC2109" :cookie-string ,cookie-string :message ,(format nil "~A comes before NAME=VALUE" match-against)))
+	      ,(assemble-matches cookie-string cookie key value (rest matches))))))))
+	
+(defmacro cookie-case (cookie-string cookie key value &body matches)
+  "Helper macro that essentially does a case statement for cookie slots. Used in parse-cookies-v1"
+  (let ((evaluated-key (gensym))
+	(evaluated-value (gensym)))
+    `(let ((,evaluated-key ,key)
+	   (,evaluated-value ,value))
+      ,(assemble-matches cookie-string cookie evaluated-key evaluated-value matches))))
+	
+
+(defun parse-cookies-v1 (cookie-string chopped)
+  "Parses RFC2109 cookies - do not use directly"
+  (let ((interesting-values (rest chopped)) ; skip the version string
+	(cookies nil)
+	(current-cookie nil))
+    (dolist (splitme interesting-values)
+      (destructuring-bind (key value) (split-sequence:split-sequence #\= splitme)
+	(cookie-case cookie-string current-cookie key value
+	  ("$Path" cookie-path)
+	  ("$Domain" cookie-domain)
+	  (otherwise (progn
+		       (when (cookie-p current-cookie)
+			 (push current-cookie cookies))
+		       (setf current-cookie (make-cookie :name key :value (remove-quotes-around value))))))))
+    (when (cookie-p current-cookie)
+      (push current-cookie cookies))
+    (nreverse cookies)))
+
+			   
+  
+
+(defun parse-cookies (cookie-string)
+  "Parses cookies in a Cookie: request header, returning a list of COOKIE structs.
+The only information that is passed back for each cookie is: name, value, path, domain, so don't go
+looking for comments or the like.
+
+Note that this function does not want the Cookie: portion of the header
+
+So if the request header looked like:
+Cookie: $Version=1;
+                mycookie=value1;
+                myothercookie=value2
+
+You'd leave off the Cookie: bit at the front.
+
+The other parser is SAFE-PARSE-COOKIES, which is the version to use when you can."
+  (when (not (or (null cookie-string)
+		 (equal "" cookie-string)))
+    (let* ((chopped (split-along-quoted-lws cookie-string))
+	   (version-string (car chopped)))
+      (if (and (> (length version-string) #.(length "$Version="))
+	       (string-equal "$Version="
+			     (subseq version-string 0 #.(length "$Version="))))
+	  (let ((version (read-from-string (remove-quotes-around (second (split-sequence:split-sequence #\= version-string))))))
+	    (case version
+	      ((0 1) (parse-cookies-v1 cookie-string chopped))
+	      (otherwise (error 'unparseable-cookie
+				:version version
+				:cookie-string cookie-string
+				:message "I don't know how to parse this type of cookie"))))
+	  (parse-cookies-vnetscape cookie-string)))))
+
+#+test(test very-short-cookie
+	"The cookie 'foo=bar' IS a valid cookie. It's also very short. Make sure we can parse it.
+Thanks to Marijn Haverbeke"
+	(is (equal (cookie-name (car (parse-cookies "foo=bar"))) "foo"))
+	(is (equal (cookie-value (car (parse-cookies "foo=bar"))) "bar")))
+
+;-begindoc
 ; 
 ;    The value of the cookie-version attribute must be the value from the
 ;    Version attribute, if any, of the corresponding Set-Cookie response
@@ -847,7 +1088,20 @@ information."
 ;    version number for the cookie mechanism).  $Path is an attribute
 ;    whose value (/acme) defines the Path attribute that was used when the
 ;    Customer cookie was defined in a Set-Cookie response header.
-; 
+;-enddoc
+
+#+test(test valid-cookie-example-4.4
+	  "4.4 has an example of a valid cookie - check to make sure we think it's valid"
+	  (is (attr? "Customer"))
+	  (is (value? "\"WILE_E_COYOTE\""))
+	  (is (value? "\"/acme\""))
+	  (let ((cookie (first (parse-cookies "$Version=\"1\"; Customer=\"WILE_E_COYOTE\";
+            $Path=\"/acme\""))))
+	    (is (equal (cookie-name cookie) "Customer"))
+	    (is (equal (cookie-value cookie) "WILE_E_COYOTE"))
+	    (is (equal (cookie-path cookie) "/acme"))))
+		
+;-begindoc
 ; 4.5  Caching Proxy Role
 ; 
 ;    One reason for separating state information from both a URL and
@@ -1070,12 +1324,14 @@ information."
 ;       * at least 4096 bytes per cookie (as measured by the size of the
 ;         characters that comprise the cookie non-terminal in the syntax
 ;         description of the Set-Cookie header)
+;-enddoc
 
 (defun cookie-string-too-long? (cookie-string)
   "True if the cookie string is longer than the minimum cookie size guaranteed
 to be allowed by the specification"
   (> (length cookie-string) 4096))
- 
+
+;-begindoc 
 ;       * at least 20 cookies per unique host or domain name
 ; 
 ;    User agents created for specific purposes or for limited-capacity
@@ -1230,6 +1486,65 @@ to be allowed by the specification"
 ;          cookie was not one it originated by noticing that the Domain
 ;          attribute is not for itself and ignore it.
 ; 
+;-enddoc
+
+(defun safe-parse-cookies (cookie-string &optional (domain-restriction ""))
+  (declare (type (or null string cons) domain-restriction)
+	   (type string cookie-string))
+  "Parse a cookie string (see parse-cookies), but only allow domain cookies that match domain-restriction
+RFC 2109 specifies that, in order to avoid a cookie spoofing attack,
+one should check that the domain being handed back in your cookie is
+the domain you gave out.
+
+A walkthrough of the mechanics:
+- If you hand out a cookie with no domain=, then it is restricted to your host
+- If you specify a domain, the cookie is \"unlocked\" for the domain specified
+
+If you don't expect to use domain cookies, it's best to ignore all
+domain cookies, as they're not from your website. The default call to
+SAFE-PARSE-COOKIES will ignore all domain cookies.
+
+Later on, if you need domain cookies, pass the domains you'll be using to SAFE-PARSE-COOKIES,
+and those specific domains will not be dropped.
+
+RFC text below: 
+
+  8.2  Cookie Spoofing
+  
+     Proper application design can avoid spoofing attacks from related
+     domains.  Consider:
+  
+       1.  User agent makes request to victim.cracker.edu, gets back
+           cookie session_id=\"1234\" and sets the default domain
+           victim.cracker.edu.
+  
+       2.  User agent makes request to spoof.cracker.edu, gets back
+           cookie session-id=\"1111\", with Domain=\".cracker.edu\".
+  
+       3.  User agent makes request to victim.cracker.edu again, and
+           passes
+  
+           Cookie: $Version=\"1\";
+                           session_id=\"1234\";
+                           session_id=\"1111\"; $Domain=\".cracker.edu\"
+  
+           The server at victim.cracker.edu should detect that the second
+           cookie was not one it originated by noticing that the Domain
+           attribute is not for itself and ignore it.
+
+"
+  (let ((domain-restrictions (if (consp domain-restriction)
+				 domain-restriction
+				 (list domain-restriction)))
+	(cookies (parse-cookies cookie-string)))
+    (remove-if (lambda (cookie)
+		 (not
+		  (or (eql nil (cookie-domain cookie))
+		      (equal "" (cookie-domain cookie))
+		      (member (cookie-domain cookie) domain-restrictions :test #'string-equal))))
+	       cookies)))
+
+;-begindoc
 ; 8.3  Unexpected Cookie Sharing
 ; 
 ;    A user agent should make every attempt to prevent the sharing of
@@ -1391,9 +1706,10 @@ to be allowed by the specification"
 ;    Phone: (415) 528-2600
 ;    EMail: montulli@netscape.com
 ;
+;-enddoc
 
 
-
+;-begindoc
 ;;;;;;;;;;;; 
   
 
@@ -1514,13 +1830,12 @@ to be allowed by the specification"
 ;           HT             = <US-ASCII HT, horizontal-tab (9)>
 ;           <">            = <US-ASCII double-quote mark (34)>
 ; 
+;-enddoc
 
 (defun octet-el? (datum)
   (typep datum '(or character (integer 0 255))))
-  
-(defvar *ht* (code-char 9))
-(defvar *cr* (code-char 13))
-(defvar *lf* (code-char 10))
+
+; SEE (defvar *ht* above - they're used before here
 
 (defun char-el? (el)
   (let ((char-code (char-code el)))
@@ -1532,6 +1847,7 @@ to be allowed by the specification"
     (or (and (>= char-code 0)
 	     (<= char-code 31))
 	(eql char-code 127))))
+;-begindoc
 ; 
 ; 
 ; 
@@ -1550,17 +1866,20 @@ to be allowed by the specification"
 ;    is defined by its associated media type, as described in section 3.7.
 ; 
 ;           CRLF           = CR LF
+;-enddoc
 
 (defun crlf-el? (el)
   (or (eql el *cr*)
       (eql el *lf*)))
 
+;-begindoc
 ; 
 ;    HTTP/1.1 headers can be folded onto multiple lines if the
 ;    continuation line begins with a space or horizontal tab. All linear
 ;    white space, including folding, has the same semantics as SP.
 ; 
 ;           LWS            = [CRLF] 1*( SP | HT )
+;-enddoc
 
 (defun lws-el? (el)
   (or (crlf-el? el)
@@ -1568,7 +1887,7 @@ to be allowed by the specification"
       (eql *ht* el)))
   
   
-
+;-begindoc
 ;    The TEXT rule is only used for descriptive field contents and values
 ;    that are not intended to be interpreted by the message parser. Words
 ;    of *TEXT may contain characters from character sets other than ISO
@@ -1577,6 +1896,7 @@ to be allowed by the specification"
 ; 
 ;           TEXT           = <any OCTET except CTLs,
 ;                            but including LWS>
+;-enddoc
 
 (defun text-el? (el)
   (and (octet-el? el)
@@ -1586,6 +1906,7 @@ to be allowed by the specification"
 (defun text? (element)
   (every #'text-el? element))
 
+;-begindoc
 ; 
 ;    Hexadecimal numeric characters are used in several protocol elements.
 ; 
@@ -1597,6 +1918,7 @@ to be allowed by the specification"
 ;    string to be used within a parameter value.
 ; 
 ;           token          = 1*<any CHAR except CTLs or tspecials>
+;-enddoc
 
 (defun token-el? (el)
   (and (char-el? el)
@@ -1606,18 +1928,22 @@ to be allowed by the specification"
 (defun token? (element)
   (declare (type string element))
   (and
-   (token-el? (aref element 0))
+   (not (zerop (length element)))
+   (token-el? (elt element 0))
    (every #'token-el? (subseq element 1))))
 
+;-begindoc
 ; 
 ;           tspecials      = "(" | ")" | "<" | ">" | "@"
 ;                          | "," | ";" | ":" | "\" | <">
 ;                          | "/" | "[" | "]" | "?" | "="
 ;                          | "{" | "}" | SP | HT
+;-enddoc
 
 (defun tspecial-el? (el)
   (member el (list #\( #\) #\< #\> #\@ #\, #\; #\: #\\ #\" #\/ #\[ #\] #\? #\= #\{ #\} #\Space *ht*)))
- 
+
+;-begindoc 
 ;    Comments can be included in some HTTP header fields by surrounding
 ;    the comment text with parentheses. Comments are only allowed in
 ;    fields containing "comment" as part of their field value definition.
@@ -1647,27 +1973,68 @@ to be allowed by the specification"
 ; 
 ;           quoted-pair    = "\" CHAR
 ;
+;-enddoc
 
 (defun quoted-string? (element)
-  (and (eql (aref element 0) #\")
-       (eql (aref element (1- (length element))) #\")
-       (qdtext? (subseq element 1 (1- (length element))))))
-
-(defun remove-escaped-quotes-helper (input accumulator)
-  (declare (type list input)
-	   (type list accumulator))
-  (if (null input)
-      (coerce (reverse accumulator) 'string)
-      (if (and (eql (first input) #\\)
-	       (eql (second input) #\"))
-	  (remove-escaped-quotes-helper (cddr input) accumulator)
-	  (remove-escaped-quotes-helper (cdr input) (cons (car input) accumulator)))))
+  (and (>= (length element) 2)
+       (or (equal element "\"\"")
+	   (and (eql (elt element 0) #\")
+		(eql (elt element (1- (length element))) #\")
+		(qdtext? (remove-escaped-quotes (subseq element 1 (1- (length element)))))))))
 
 (defun remove-escaped-quotes (string)
-  (remove-escaped-quotes-helper (coerce string 'list) nil))
+  (labels ((remove-escaped-quotes-helper (input accumulator)
+	     (declare (type list input)
+		      (type list accumulator))
+	     (if (null input)
+		 (coerce (reverse accumulator) 'string)
+		 (if (and (eql (first input) #\\)
+			  (eql (second input) #\"))
+		     (remove-escaped-quotes-helper (cddr input) accumulator)
+		     (remove-escaped-quotes-helper (cdr input) (cons (car input) accumulator))))))
+    (remove-escaped-quotes-helper (coerce string 'list) nil)))
   
 (defun qdtext? (element)
   (and
    (text? element)
    (not (find #\" element))))
 
+;-begindoc
+; From Client Side State - Netscape spec for the original cookies
+; Located at: http://wp.netscape.com/newsref/std/cookie_spec.html
+;
+;;  Syntax of the Cookie HTTP Request Header
+;;  
+;;   When requesting a URL from an HTTP server, the browser will match the
+;;  URL against all cookies and if any of them match, a line containing
+;;  the name/value pairs of all matching cookies will be included in the
+;;  HTTP request. Here is the format of that line:
+;;  
+;;  Cookie: NAME1=OPAQUE_STRING1; NAME2=OPAQUE_STRING2 ...
+;;  
+;;
+;-enddoc
+(defun trim-spaces (string)
+  (declare (type string string))
+  (string-trim (list #\Space *cr* *lf* *ht*) string))
+
+(defun ensure-pair (list delim)
+  "Ensure that the LIST has only two elements, by joining the 
+   elements of the tail with DELIM. Gentle failure: shorter 
+   lists are just returned.
+   LIST should be a list of strings." 
+  (declare (type list list)
+           (type string delim))
+  (if (<= (length list) 2)
+    list
+    (list (car list)
+          (format nil (concatenate 'string "~{~A~^" delim "~}") 
+	          (cdr list)))))
+
+(defun parse-cookies-vnetscape (cookie-string)
+  "Parses old netscape-style cookies"
+  (let ((cookies nil))
+    (dolist (cookie (split-sequence:split-sequence #\; cookie-string :remove-empty-subseqs t))
+      (destructuring-bind (name value) (ensure-pair (split-sequence:split-sequence #\= cookie) "=")
+	(push (make-cookie :name (trim-spaces name) :value (trim-spaces value)) cookies)))
+    (nreverse cookies)))
